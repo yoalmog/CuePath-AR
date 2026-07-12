@@ -1,0 +1,6 @@
+{
+  "name": "CuePath AR",
+  "description": "An interactive augmented reality aiming assistant and physics simulator for pool/billiard players to visualize and master ball paths, contact points, and deflection angles.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
