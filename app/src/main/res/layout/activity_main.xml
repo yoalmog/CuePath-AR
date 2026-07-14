@@ -4,10 +4,9 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- ARFragment for rendering the augmented reality overlay on the pool table -->
-    <fragment
-        android:id="@+id/ar_fragment"
-        android:name="com.google.ar.sceneform.ux.ArFragment"
+    <!-- Container for ARFragment, dynamically added only if ARCore is supported -->
+    <FrameLayout
+        android:id="@+id/ar_fragment_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 

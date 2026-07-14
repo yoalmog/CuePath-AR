@@ -14,6 +14,8 @@ import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.snapshotFlow
 import com.google.ar.core.Config
+import com.google.ar.core.ArCoreApk
+import com.google.ar.core.exceptions.UnavailableException
 import com.google.ar.sceneform.ux.ArFragment
 import kotlinx.coroutines.launch
 import androidx.activity.ComponentActivity
@@ -99,14 +101,8 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Load the XML layout containing the ARFragment
+        // Load the XML layout containing the ARFragment container
         setContentView(R.layout.activity_main)
-
-        // Locate the ARFragment from the XML layout
-        arFragment = supportFragmentManager.findFragmentById(R.id.ar_fragment) as? ArFragment
-
-        // Set up the ARCore session configuration and plane detection listener
-        setupARCorePlaneDetection()
 
         // Embed the Jetpack Compose overlays inside overlay_container on top of AR view
         val overlayContainer = findViewById<FrameLayout>(R.id.overlay_container)
@@ -121,9 +117,38 @@ class MainActivity : FragmentActivity() {
         }
         overlayContainer.addView(composeView)
 
-        // Reactively toggle visibility of the ARFragment based on current tab and permissions
+        // Check ARCore support dynamically and initialize the ARFragment ONLY after camera permissions are granted.
+        // This avoids session initialization exceptions and permission race conditions with the camera overlay.
+        var hasARCoreChecked = false
+        var isARCoreSupported = false
+
         lifecycleScope.launch {
             snapshotFlow { Pair(viewModel.currentTab, viewModel.cameraPermissionGranted) }.collect { (tab, granted) ->
+                if (granted && !hasARCoreChecked) {
+                    hasARCoreChecked = true
+                    isARCoreSupported = try {
+                        val availability = ArCoreApk.getInstance().checkAvailability(this@MainActivity)
+                        availability.isSupported || availability == ArCoreApk.Availability.UNKNOWN_CHECKING
+                    } catch (e: Exception) {
+                        false
+                    }
+
+                    if (isARCoreSupported && arFragment == null) {
+                        try {
+                            val fragment = ArFragment()
+                            supportFragmentManager.beginTransaction()
+                                .replace(R.id.ar_fragment_container, fragment)
+                                .commitAllowingStateLoss()
+                            arFragment = fragment
+                            setupARCorePlaneDetection()
+                        } catch (e: Exception) {
+                            android.util.Log.e("MainActivity", "Error adding ArFragment dynamically: ${e.message}", e)
+                        }
+                    } else if (!isARCoreSupported) {
+                        android.util.Log.i("MainActivity", "ARCore is not supported/installed. Falling back to high-fidelity CameraX preview.")
+                    }
+                }
+
                 val arView = arFragment?.view
                 if (tab == "ar_camera" && granted) {
                     arView?.visibility = android.view.View.VISIBLE
@@ -1963,6 +1988,26 @@ fun BilliardsTableCanvas(
 ) {
     var draggingBall by remember { mutableStateOf<String?>(null) }
 
+    val infiniteTransition = rememberInfiniteTransition(label = "collision_pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.6f,
+        targetValue = 1.4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 0.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseAlpha"
+    )
+
     Canvas(
         modifier = modifier
             .background(if (showLiveCamera) Color.Transparent else FeltGreen)
@@ -2318,6 +2363,19 @@ fun BilliardsTableCanvas(
             } else {
                 ghostOffset
             }
+
+            // Pulsing highlight circle on the contact area
+            drawCircle(
+                color = Color.Cyan.copy(alpha = pulseAlpha),
+                radius = 16f * pulseScale * scale,
+                center = contactOffset,
+                style = Stroke(width = 1.5f * scale)
+            )
+            drawCircle(
+                color = Color.Cyan.copy(alpha = pulseAlpha * 0.4f),
+                radius = 24f * pulseScale * scale,
+                center = contactOffset
+            )
             drawCircle(
                 color = Color.Cyan,
                 radius = 7.5f * scale,
@@ -2329,6 +2387,53 @@ fun BilliardsTableCanvas(
                 radius = 2f * scale,
                 center = contactOffset
             )
+
+            // 1.5 Hovering Aim Assist Baseline Path Projection (drawn when hovering/viewing live camera)
+            if (showLiveCamera) {
+                val dirX = targetOffset.x - cueOffset.x
+                val dirY = targetOffset.y - cueOffset.y
+                val dirLen = sqrt(dirX * dirX + dirY * dirY)
+                
+                if (dirLen > 0f) {
+                    val dx = dirX / dirLen
+                    val dy = dirY / dirLen
+                    
+                    val baselineLength = 1000f * scale
+                    val baselineEnd = cueOffset + Offset(dx * baselineLength, dy * baselineLength)
+                    
+                    // Elegant ultra-thin cyan-blue double-dashed baseline
+                    drawLine(
+                        color = Color(0xFF00E5FF).copy(alpha = 0.4f),
+                        start = cueOffset,
+                        end = baselineEnd,
+                        strokeWidth = 1.2f * scale,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 12f))
+                    )
+                    
+                    // Animated scanning dot traversing along the baseline
+                    val scanFraction = (System.currentTimeMillis() % 1600) / 1600f
+                    val scanPos = cueOffset + Offset(dx * baselineLength * scanFraction, dy * baselineLength * scanFraction)
+                    drawCircle(
+                        color = Color(0xFF00E5FF).copy(alpha = 0.7f),
+                        radius = 4.5f * scale,
+                        center = scanPos
+                    )
+                    
+                    // Text indicator
+                    drawContext.canvas.nativeCanvas.drawText(
+                        "קו הכוונה מהיר (Aim Assist)",
+                        cueOffset.x + dx * 80f * scale + 12f * scale,
+                        cueOffset.y + dy * 80f * scale - 6f * scale,
+                        android.graphics.Paint().apply {
+                            color = android.graphics.Color.parseColor("#00E5FF")
+                            textSize = 8.5f * scale
+                            alpha = 150
+                            isAntiAlias = true
+                            typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
+                        }
+                    )
+                }
+            }
 
             // 2. Real-time Orientation-dependent predictive trajectory path
             if (viewModel.isOrientationAimEnabled) {
@@ -2501,7 +2606,39 @@ fun BilliardsTableCanvas(
 
 @Composable
 fun CameraXView(modifier: Modifier = Modifier) {
-    Box(modifier = modifier.background(Color.Transparent))
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    AndroidView(
+        factory = { ctx ->
+            PreviewView(ctx).apply {
+                scaleType = PreviewView.ScaleType.FILL_CENTER
+            }
+        },
+        modifier = modifier,
+        update = { previewView ->
+            val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+            cameraProviderFuture.addListener({
+                val cameraProvider = cameraProviderFuture.get()
+                val preview = CameraXPreview.Builder().build().also {
+                    it.setSurfaceProvider(previewView.surfaceProvider)
+                }
+
+                val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+                try {
+                    cameraProvider.unbindAll()
+                    cameraProvider.bindToLifecycle(
+                        lifecycleOwner,
+                        cameraSelector,
+                        preview
+                    )
+                } catch (exc: Exception) {
+                    android.util.Log.e("CameraXView", "Use case binding failed", exc)
+                }
+            }, androidx.core.content.ContextCompat.getMainExecutor(context))
+        }
+    )
 }
 
 @Composable
