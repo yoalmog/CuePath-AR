@@ -27,6 +27,15 @@ jobs:
       with:
         gradle-version: 9.3.1
 
+    - name: Restore Debug Keystore
+      run: |
+        if [ -f debug.keystore.base64 ]; then
+          base64 -d debug.keystore.base64 > debug.keystore
+          echo "Successfully restored debug.keystore from base64"
+        else
+          echo "Warning: debug.keystore.base64 not found in the root directory"
+        fi
+
     - name: Build Debug APK
       run: gradle :app:assembleDebug --stacktrace
 

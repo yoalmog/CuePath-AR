@@ -8,6 +8,14 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
+import androidx.fragment.app.FragmentActivity
+import android.widget.FrameLayout
+import android.widget.Toast
+import androidx.lifecycle.lifecycleScope
+import androidx.compose.runtime.snapshotFlow
+import com.google.ar.core.Config
+import com.google.ar.sceneform.ux.ArFragment
+import kotlinx.coroutines.launch
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -73,18 +81,67 @@ import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     private val viewModel: BilliardsViewModel by viewModels()
+    private var arFragment: ArFragment? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent {
-            MyApplicationTheme {
-                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                    BilliardsApp(viewModel = viewModel)
+
+        // Load the XML layout containing the ARFragment
+        setContentView(R.layout.activity_main)
+
+        // Locate the ARFragment from the XML layout
+        arFragment = supportFragmentManager.findFragmentById(R.id.ar_fragment) as? ArFragment
+
+        // Set up the ARCore session configuration and plane detection listener
+        setupARCorePlaneDetection()
+
+        // Embed the Jetpack Compose overlays inside overlay_container on top of AR view
+        val overlayContainer = findViewById<FrameLayout>(R.id.overlay_container)
+        val composeView = androidx.compose.ui.platform.ComposeView(this).apply {
+            setContent {
+                MyApplicationTheme {
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                        BilliardsApp(viewModel = viewModel)
+                    }
                 }
             }
+        }
+        overlayContainer.addView(composeView)
+
+        // Reactively toggle visibility of the ARFragment based on current tab and permissions
+        lifecycleScope.launch {
+            snapshotFlow { Pair(viewModel.currentTab, viewModel.cameraPermissionGranted) }.collect { (tab, granted) ->
+                val arView = arFragment?.view
+                if (tab == "ar_camera" && granted) {
+                    arView?.visibility = android.view.View.VISIBLE
+                } else {
+                    arView?.visibility = android.view.View.GONE
+                }
+            }
+        }
+    }
+
+    private fun setupARCorePlaneDetection() {
+        arFragment?.setOnSessionConfigurationListener { session, config ->
+            // Configure horizontal plane detection to detect pool table surfaces
+            config.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
+            config.focusMode = Config.FocusMode.AUTO
+            session.configure(config)
+        }
+
+        arFragment?.setOnTapArPlaneListener { hitResult, plane, motionEvent ->
+            // Create an anchor at the user's tapped location on the detected pool table plane
+            val anchor = hitResult.createAnchor()
+
+            // Display feedback toast
+            Toast.makeText(
+                this,
+                "פני שולחן הביליארד זוהו בהצלחה! נקודת העיגון של קווי ההכוון נקבעה.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 }
@@ -264,7 +321,7 @@ fun BilliardsApp(viewModel: BilliardsViewModel) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(VelvetBlack)
+                .background(if (viewModel.currentTab == "ar_camera") Color.Transparent else VelvetBlack)
                 .padding(paddingValues)
         ) {
             when (viewModel.currentTab) {
@@ -1975,36 +2032,7 @@ fun BilliardsTableCanvas(
 
 @Composable
 fun CameraXView(modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
-
-    AndroidView(
-        factory = { ctx ->
-            val previewView = PreviewView(ctx).apply {
-                scaleType = PreviewView.ScaleType.FILL_CENTER
-            }
-            cameraProviderFuture.addListener({
-                val cameraProvider = cameraProviderFuture.get()
-                val preview = CameraXPreview.Builder().build().also {
-                    it.surfaceProvider = previewView.surfaceProvider
-                }
-                val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-                try {
-                    cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
-                        lifecycleOwner,
-                        cameraSelector,
-                        preview
-                    )
-                } catch (exc: Exception) {
-                    exc.printStackTrace()
-                }
-            }, ContextCompat.getMainExecutor(context))
-            previewView
-        },
-        modifier = modifier
-    )
+    Box(modifier = modifier.background(Color.Transparent))
 }
 
 @Composable
