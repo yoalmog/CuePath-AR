@@ -45,6 +45,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.automirrored.filled.Help
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -242,7 +244,7 @@ fun BilliardsApp(viewModel: BilliardsViewModel) {
                         modifier = Modifier.testTag("alignment_help_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Help,
+                            imageVector = Icons.AutoMirrored.Filled.Help,
                             contentDescription = "Camera Alignment Help",
                             tint = NeonFelt
                         )
@@ -304,7 +306,7 @@ fun BilliardsApp(viewModel: BilliardsViewModel) {
                 NavigationBarItem(
                     selected = viewModel.currentTab == "physics_guide",
                     onClick = { viewModel.currentTab = "physics_guide" },
-                    icon = { Icon(Icons.Default.MenuBook, contentDescription = "Physics Guide") },
+                    icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "Physics Guide") },
                     label = { Text("מדריך פיזיקה", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = NeonFelt,
@@ -939,7 +941,7 @@ fun InfoHUDCard(viewModel: BilliardsViewModel, isAR: Boolean) {
                 }
             }
 
-            Divider(color = BorderDark, modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(color = BorderDark, modifier = Modifier.padding(vertical = 8.dp))
 
             // Aiming Math Details Grid
             Row(
@@ -1157,7 +1159,7 @@ fun AimControlPanel(viewModel: BilliardsViewModel) {
                 }
             }
 
-            Divider(color = BorderDark, modifier = Modifier.padding(vertical = 10.dp))
+            HorizontalDivider(color = BorderDark, modifier = Modifier.padding(vertical = 10.dp))
 
             var isCalibrationExpanded by remember { mutableStateOf(false) }
 
@@ -1292,7 +1294,7 @@ fun AimControlPanel(viewModel: BilliardsViewModel) {
                         }
                     }
 
-                    Divider(color = BorderDark.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 4.dp))
+                    HorizontalDivider(color = BorderDark.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 4.dp))
 
                     // Friction calibration slider
                     Column {
@@ -1529,7 +1531,7 @@ fun AimControlPanel(viewModel: BilliardsViewModel) {
                             .testTag("show_alignment_guide_btn")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.MenuBook,
+                            imageVector = Icons.AutoMirrored.Filled.MenuBook,
                             contentDescription = "Show Alignment Guide",
                             modifier = Modifier.size(16.dp)
                         )
@@ -2086,7 +2088,7 @@ fun CameraAlignmentOverlay(
                     }
                 }
 
-                Divider(color = BorderDark)
+                HorizontalDivider(color = BorderDark)
 
                 // Custom Graphic of alignment using a Canvas
                 Box(
