@@ -92,20 +92,91 @@ class BilliardsViewModel(application: Application) : AndroidViewModel(applicatio
     val aimFraction: String
         get() = BilliardsPhysics.getAimFractionString(cutAngle)
 
+    // Surface Calibration & AR features
+    var isCalibrationActive by mutableStateOf(false)
+    var calibrationPoints by mutableStateOf<List<PointF>>(emptyList())
+    var calibrationStatusText by mutableStateOf("כיול שוליים: כבוי. לחץ להתחלה.")
+    var calibratedMinX by mutableStateOf(20f)
+    var calibratedMaxX by mutableStateOf(980f)
+    var calibratedMinY by mutableStateOf(20f)
+    var calibratedMaxY by mutableStateOf(480f)
+    
+    var showARTrajectories by mutableStateOf(true)
+    var isAnalyzingCamera by mutableStateOf(true)
+    var bouncePoints by mutableStateOf<List<PointF>>(emptyList())
+
+    fun startCalibration() {
+        isCalibrationActive = true
+        calibrationPoints = emptyList()
+        calibrationStatusText = "אנא הקש על פינה שמאלית עליונה (1 מתוך 4)"
+    }
+
+    fun addCalibrationPoint(point: PointF) {
+        if (!isCalibrationActive) return
+        val currentPoints = calibrationPoints.toMutableList()
+        if (currentPoints.size < 4) {
+            currentPoints.add(point)
+            calibrationPoints = currentPoints
+            
+            when (currentPoints.size) {
+                1 -> calibrationStatusText = "אנא הקש על פינה ימנית עליונה (2 מתוך 4)"
+                2 -> calibrationStatusText = "אנא הקש על פינה ימנית תחתונה (3 מתוך 4)"
+                3 -> calibrationStatusText = "אנא הקש על פינה שמאלית תחתונה (4 מתוך 4)"
+                4 -> {
+                    isCalibrationActive = false
+                    calibrationStatusText = "הכיול הושלם בהצלחה! גבולות השולחן עודכנו."
+                    applyCalibration()
+                }
+            }
+        }
+    }
+
+    fun resetCalibration() {
+        calibrationPoints = emptyList()
+        calibratedMinX = 20f
+        calibratedMaxX = 980f
+        calibratedMinY = 20f
+        calibratedMaxY = 480f
+        isCalibrationActive = false
+        calibrationStatusText = "הכיול אופס לגבולות ברירת המחדל."
+    }
+
+    private fun applyCalibration() {
+        if (calibrationPoints.size == 4) {
+            val xs = calibrationPoints.map { it.x }
+            val ys = calibrationPoints.map { it.y }
+            // Sort to find bounds, keeping some cushion padding
+            calibratedMinX = (xs.minOrNull() ?: 20f).coerceAtLeast(15f)
+            calibratedMaxX = (xs.maxOrNull() ?: 980f).coerceAtMost(985f)
+            calibratedMinY = (ys.minOrNull() ?: 20f).coerceAtLeast(15f)
+            calibratedMaxY = (ys.maxOrNull() ?: 480f).coerceAtMost(485f)
+        }
+    }
+
     // Trajectories
     val trajectories: Pair<List<PointF>, List<PointF>>
-    get() = BilliardsPhysics.generateTrajectories(
-        cue = cuePos,
-        target = targetPos,
-        pocket = pocketPos,
-        spinX = spinX,
-        spinY = spinY,
-        speed = shotSpeed,
-        friction = friction,
-        ballMass = ballMass,
-        squirtCompensation = squirtCompensation,
-        englishIntensity = englishIntensity
-    )
+        get() {
+            val list = mutableListOf<PointF>()
+            val result = BilliardsPhysics.generateTrajectories(
+                cue = cuePos,
+                target = targetPos,
+                pocket = pocketPos,
+                spinX = spinX,
+                spinY = spinY,
+                speed = shotSpeed,
+                friction = friction,
+                ballMass = ballMass,
+                squirtCompensation = squirtCompensation,
+                englishIntensity = englishIntensity,
+                minX = calibratedMinX,
+                maxX = calibratedMaxX,
+                minY = calibratedMinY,
+                maxY = calibratedMaxY,
+                onBounce = { list.add(it) }
+            )
+            bouncePoints = list
+            return result
+        }
 
     // --- Animation State for Simulator ---
     var isShotAnimating by mutableStateOf(false)

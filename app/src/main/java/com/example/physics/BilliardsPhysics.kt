@@ -140,7 +140,12 @@ object BilliardsPhysics {
         friction: Float = 0.15f,
         ballMass: Float = 170f,
         squirtCompensation: Boolean = true,
-        englishIntensity: Float = 1.0f
+        englishIntensity: Float = 1.0f,
+        minX: Float = 20f,
+        maxX: Float = TABLE_WIDTH - 20f,
+        minY: Float = 20f,
+        maxY: Float = TABLE_HEIGHT - 20f,
+        onBounce: (PointF) -> Unit = {}
     ): Pair<List<PointF>, List<PointF>> {
         val baseGhost = calculateGhostBall(cue, target, pocket)
 
@@ -183,7 +188,7 @@ object BilliardsPhysics {
         }
 
         // 2. Post-collision tangent line deflected by spin
-        val tangentDir = calculateCueBallTangentDirWithGhost(cue, target, ghost)
+        var tangentDir = calculateCueBallTangentDirWithGhost(cue, target, ghost)
         val impactLine = (target - ghost).normalize() // Line from ghost to target
 
         // Adjust path length based on friction and mass
@@ -194,36 +199,61 @@ object BilliardsPhysics {
         
         val postCollisionSteps = 40
         var currentPoint = ghost
+        val stepLength = pathLength / postCollisionSteps
+        var velocity = tangentDir * stepLength
 
         // Topspin bends the path forward (towards impact line), draw bends it backward (away from impact line)
         // Sidespin causes minor horizontal curvature
         // Friction accelerates the grip of spin (earlier curvature), while higher mass resists bending (inertia)
         for (i in 1..postCollisionSteps) {
             val t = i.toFloat() / postCollisionSteps
-            val dist = pathLength * t
             
-            // Vector calculation reflecting physical deflection
-            val baseTangentPos = ghost + (tangentDir * dist)
+            // Curve deflection factor: grows with step/distance
+            val curveIntensity = spinY * stepLength * 0.18f * (friction / 0.15f) * (170f / ballMass)
+            val spinXDeflection = spinX * englishIntensity * stepLength * 0.08f * (friction / 0.15f) * (170f / ballMass)
             
-            // Curve deflection factor: grows quadratically with distance t
-            // Friction accelerates the grip, mass dampens it
-            val curveIntensity = spinY * (dist * 0.25f) * t * (friction / 0.15f) * (170f / ballMass)
-            val spinXDeflection = spinX * englishIntensity * (dist * 0.1f) * t * (friction / 0.15f) * (170f / ballMass)
+            // Apply curved deflection to velocity direction
+            val perpDir = PointF(-velocity.y, velocity.x).normalize()
+            velocity = velocity + (impactLine * curveIntensity) + (perpDir * spinXDeflection)
+            velocity = velocity.normalize() * stepLength
             
-            // Apply topspin/draw (curves along the direction of the impact/shot line)
-            val curvedPos = baseTangentPos + (impactLine * curveIntensity) + (PointF(-tangentDir.y, tangentDir.x) * spinXDeflection)
+            val nextPoint = currentPoint + velocity
             
-            // Constrain inside table borders
-            val clampedX = curvedPos.x.coerceIn(BALL_RADIUS, TABLE_WIDTH - BALL_RADIUS)
-            val clampedY = curvedPos.y.coerceIn(BALL_RADIUS, TABLE_HEIGHT - BALL_RADIUS)
+            // Bouncing logic with the calibrated boundaries
+            var finalX = nextPoint.x
+            var finalY = nextPoint.y
+            var didBounce = false
             
-            currentPoint = PointF(clampedX, clampedY)
+            val limitMinX = minX + BALL_RADIUS
+            val limitMaxX = maxX - BALL_RADIUS
+            val limitMinY = minY + BALL_RADIUS
+            val limitMaxY = maxY - BALL_RADIUS
+            
+            if (finalX <= limitMinX) {
+                finalX = limitMinX
+                velocity = PointF(-velocity.x, velocity.y)
+                didBounce = true
+            } else if (finalX >= limitMaxX) {
+                finalX = limitMaxX
+                velocity = PointF(-velocity.x, velocity.y)
+                didBounce = true
+            }
+            
+            if (finalY <= limitMinY) {
+                finalY = limitMinY
+                velocity = PointF(velocity.x, -velocity.y)
+                didBounce = true
+            } else if (finalY >= limitMaxY) {
+                finalY = limitMaxY
+                velocity = PointF(velocity.x, -velocity.y)
+                didBounce = true
+            }
+            
+            currentPoint = PointF(finalX, finalY)
             cuePath.add(currentPoint)
             
-            // If we hit a border, we stop drawing
-            if (clampedX <= BALL_RADIUS || clampedX >= TABLE_WIDTH - BALL_RADIUS ||
-                clampedY <= BALL_RADIUS || clampedY >= TABLE_HEIGHT - BALL_RADIUS) {
-                break
+            if (didBounce) {
+                onBounce(currentPoint)
             }
         }
 

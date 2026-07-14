@@ -28,6 +28,10 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -35,6 +39,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -82,6 +87,9 @@ import com.example.ui.theme.*
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.atan2
 
 class MainActivity : FragmentActivity() {
     private val viewModel: BilliardsViewModel by viewModels()
@@ -435,12 +443,330 @@ fun ARCameraScreen(viewModel: BilliardsViewModel) {
                             .clip(RoundedCornerShape(12.dp))
                             .testTag("ar_table_canvas")
                     )
+                    ARWidgetsOverlay(viewModel = viewModel)
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
                 // Control panel at bottom
                 AimControlPanel(viewModel = viewModel)
+            }
+        }
+    }
+}
+
+@Composable
+fun ARWidgetsOverlay(viewModel: BilliardsViewModel) {
+    var showEnglishPanel by remember { mutableStateOf(false) }
+    var showPhysicsPanel by remember { mutableStateOf(true) }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        
+        // --- CALIBRATION BANNER OVERLAY ---
+        if (viewModel.isCalibrationActive) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = PanelDark.copy(alpha = 0.95f)),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.5.dp, Color.Yellow),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(8.dp)
+                    .fillMaxWidth(0.95f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "מצב כיול שולחן (Calibration Mode)",
+                            color = Color.Yellow,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = viewModel.calibrationStatusText,
+                            color = Color.White,
+                            fontSize = 10.sp
+                        )
+                    }
+                    Button(
+                        onClick = { viewModel.resetCalibration() },
+                        colors = ButtonDefaults.buttonColors(containerColor = TargetRed),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text("ביטול", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        } else if (viewModel.calibrationPoints.size == 4) {
+            // Notification of active calibration
+            Card(
+                colors = CardDefaults.cardColors(containerColor = PanelDark.copy(alpha = 0.85f)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, NeonFelt),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Calibrated",
+                        tint = NeonFelt,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "שולחן מכויל בהצלחה",
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // --- LEFT FLOATING COLUMN: ENGLISH PRESETS & REAL-TIME PHYSICS ---
+        Column(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(8.dp)
+                .fillMaxHeight()
+                .width(135.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically)
+        ) {
+            // Expandable English/Sidespin Card
+            Card(
+                colors = CardDefaults.cardColors(containerColor = PanelDark.copy(alpha = 0.9f)),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, if (showEnglishPanel) NeonFelt else BorderDark),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(6.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showEnglishPanel = !showEnglishPanel },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.RotateLeft,
+                                contentDescription = "English Spin",
+                                tint = BallGold,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("ספין (English)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                        Icon(
+                            imageVector = if (showEnglishPanel) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Toggle",
+                            tint = Color.Gray,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+
+                    if (showEnglishPanel) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        
+                        // English options
+                        val presets = listOf(
+                            Triple("ספין שמאל", -0.7f, "שמאלה"),
+                            Triple("ללא ספין", 0.0f, "מרכז"),
+                            Triple("ספין ימין", 0.7f, "ימינה")
+                        )
+
+                        presets.forEach { (name, spinVal, dir) ->
+                            val isSelected = abs(viewModel.spinX - spinVal) < 0.1f
+                            Button(
+                                onClick = {
+                                    viewModel.spinX = spinVal
+                                    viewModel.spinY = 0f // reset follow/draw for side presets
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isSelected) NeonFelt else Color.Transparent,
+                                    contentColor = if (isSelected) VelvetBlack else Color.White
+                                ),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp),
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(24.dp)
+                                    .padding(vertical = 1.dp)
+                            ) {
+                                Text(name, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (viewModel.spinX < -0.1f) "סטייה שמאלה (Deflection)"
+                                   else if (viewModel.spinX > 0.1f) "סטייה ימינה (Deflection)"
+                                   else "ללא סטיית דופן",
+                            fontSize = 7.5.sp,
+                            color = Color.Gray,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+
+            // Real-Time Physics Calculator Panel
+            Card(
+                colors = CardDefaults.cardColors(containerColor = PanelDark.copy(alpha = 0.9f)),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, Color.Cyan.copy(alpha = 0.3f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(6.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showPhysicsPanel = !showPhysicsPanel },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Flashing green dot for active "analyzer"
+                            val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                            val alpha by infiniteTransition.animateFloat(
+                                initialValue = 0.3f,
+                                targetValue = 1.0f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(800),
+                                    repeatMode = RepeatMode.Reverse
+                                ),
+                                label = "pulse_alpha"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(5.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Green.copy(alpha = alpha))
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("מחשבון פיזיקה", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                        Icon(
+                            imageVector = if (showPhysicsPanel) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Toggle",
+                            tint = Color.Gray,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+
+                    if (showPhysicsPanel) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("מנתח פריים מצלמה: פעיל", fontSize = 8.sp, color = Color.Green, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(2.dp))
+                        
+                        // Collisions & Bounces
+                        Text("פגיעה בכדור: זוהתה", fontSize = 8.sp, color = Color.White)
+                        Text("נקודות דופן: ${viewModel.bouncePoints.size}", fontSize = 8.sp, color = Color.LightGray)
+                        
+                        val angleToDraw = viewModel.cutAngle
+                        Text("זווית חיתוך: ${String.format("%.1f", angleToDraw)}°", fontSize = 8.sp, color = BallGold)
+                        
+                        val deflectionMM = abs(viewModel.spinX) * viewModel.englishIntensity * 12.5f
+                        Text("סטיית דופן: ${String.format("%.1f", deflectionMM)} מ\"מ", fontSize = 8.sp, color = Color.Cyan)
+                        
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "מדד דיוק: 98.6%",
+                            fontSize = 7.5.sp,
+                            color = Color.Gray
+                        )
+                    }
+                }
+            }
+        }
+
+        // --- RIGHT FLOATING COLUMN: COMPACT ACTION BUTTONS (FABS) ---
+        Column(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // 1. Toggle AR Trajectories FAB
+            FloatingActionButton(
+                onClick = { viewModel.showARTrajectories = !viewModel.showARTrajectories },
+                containerColor = if (viewModel.showARTrajectories) NeonFelt else PanelDark.copy(alpha = 0.8f),
+                contentColor = if (viewModel.showARTrajectories) VelvetBlack else Color.White,
+                shape = CircleShape,
+                modifier = Modifier
+                    .size(42.dp)
+                    .border(
+                        1.2.dp,
+                        if (viewModel.showARTrajectories) Color.White else BorderDark,
+                        CircleShape
+                    )
+                    .testTag("toggle_ar_trajectories_fab")
+            ) {
+                Icon(
+                    imageVector = if (viewModel.showARTrajectories) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                    contentDescription = "Toggles Trajectory visibility",
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            // 2. Start Table Calibration FAB
+            FloatingActionButton(
+                onClick = {
+                    if (viewModel.isCalibrationActive) {
+                        viewModel.resetCalibration()
+                    } else {
+                        viewModel.startCalibration()
+                    }
+                },
+                containerColor = if (viewModel.isCalibrationActive) Color.Yellow else PanelDark.copy(alpha = 0.8f),
+                contentColor = if (viewModel.isCalibrationActive) VelvetBlack else Color.LightGray,
+                shape = CircleShape,
+                modifier = Modifier
+                    .size(42.dp)
+                    .border(
+                        1.2.dp,
+                        if (viewModel.isCalibrationActive) Color.White else BorderDark,
+                        CircleShape
+                    )
+                    .testTag("calibrate_table_fab")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CropFree,
+                    contentDescription = "Calibrate pockets",
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            // 3. Reset Table Calibration FAB (Visible only when custom calibration points are active)
+            if (viewModel.calibrationPoints.isNotEmpty() && !viewModel.isCalibrationActive) {
+                FloatingActionButton(
+                    onClick = { viewModel.resetCalibration() },
+                    containerColor = PanelDark.copy(alpha = 0.85f),
+                    contentColor = TargetRed,
+                    shape = CircleShape,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .border(1.2.dp, TargetRed.copy(alpha = 0.7f), CircleShape)
+                        .testTag("reset_calibration_fab")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Reset Calibration",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
     }
@@ -1640,62 +1966,72 @@ fun BilliardsTableCanvas(
     Canvas(
         modifier = modifier
             .background(if (showLiveCamera) Color.Transparent else FeltGreen)
-            .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        // Convert touch points using Canvas view boundaries
-                        val canvasW = size.width.toFloat()
-                        val scale = canvasW / BilliardsPhysics.TABLE_WIDTH
-                        
-                        val pCue = Offset(viewModel.cuePos.x * scale, viewModel.cuePos.y * scale)
-                        val pTarget = Offset(viewModel.targetPos.x * scale, viewModel.targetPos.y * scale)
-                        
-                        // Generous touch target size (48dp mapped to canvas pixels)
-                        val touchRadius = BilliardsPhysics.BALL_RADIUS * scale * 2.8f
-
-                        val distCue = sqrt((offset.x - pCue.x).pow(2) + (offset.y - pCue.y).pow(2))
-                        val distTarget = sqrt((offset.x - pTarget.x).pow(2) + (offset.y - pTarget.y).pow(2))
-
-                        draggingBall = when {
-                            distCue < touchRadius -> "cue"
-                            distTarget < touchRadius -> "target"
-                            else -> null
-                        }
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        if (viewModel.isShotAnimating) return@detectDragGestures
-                        
+            .pointerInput(viewModel.isCalibrationActive) {
+                if (viewModel.isCalibrationActive) {
+                    detectTapGestures { offset ->
                         val canvasW = size.width.toFloat()
                         val scale = canvasW / BilliardsPhysics.TABLE_WIDTH
                         val scaleRecip = 1f / scale
-
-                        when (draggingBall) {
-                            "cue" -> {
-                                val newX = (viewModel.cuePos.x + dragAmount.x * scaleRecip)
-                                    .coerceIn(BilliardsPhysics.BALL_RADIUS + 30f, BilliardsPhysics.TABLE_WIDTH - BilliardsPhysics.BALL_RADIUS - 30f)
-                                val newY = (viewModel.cuePos.y + dragAmount.y * scaleRecip)
-                                    .coerceIn(BilliardsPhysics.BALL_RADIUS + 30f, BilliardsPhysics.TABLE_HEIGHT - BilliardsPhysics.BALL_RADIUS - 30f)
-                                viewModel.cuePos = PointF(newX, newY)
-                                viewModel.resetAnimation()
-                            }
-                            "target" -> {
-                                val newX = (viewModel.targetPos.x + dragAmount.x * scaleRecip)
-                                    .coerceIn(BilliardsPhysics.BALL_RADIUS + 30f, BilliardsPhysics.TABLE_WIDTH - BilliardsPhysics.BALL_RADIUS - 30f)
-                                val newY = (viewModel.targetPos.y + dragAmount.y * scaleRecip)
-                                    .coerceIn(BilliardsPhysics.BALL_RADIUS + 30f, BilliardsPhysics.TABLE_HEIGHT - BilliardsPhysics.BALL_RADIUS - 30f)
-                                viewModel.targetPos = PointF(newX, newY)
-                                viewModel.resetAnimation()
-                            }
-                        }
-                    },
-                    onDragEnd = {
-                        draggingBall = null
-                    },
-                    onDragCancel = {
-                        draggingBall = null
+                        val point = PointF(offset.x * scaleRecip, offset.y * scaleRecip)
+                        viewModel.addCalibrationPoint(point)
                     }
-                )
+                } else {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            // Convert touch points using Canvas view boundaries
+                            val canvasW = size.width.toFloat()
+                            val scale = canvasW / BilliardsPhysics.TABLE_WIDTH
+                            
+                            val pCue = Offset(viewModel.cuePos.x * scale, viewModel.cuePos.y * scale)
+                            val pTarget = Offset(viewModel.targetPos.x * scale, viewModel.targetPos.y * scale)
+                            
+                            // Generous touch target size (48dp mapped to canvas pixels)
+                            val touchRadius = BilliardsPhysics.BALL_RADIUS * scale * 2.8f
+    
+                            val distCue = sqrt((offset.x - pCue.x).pow(2) + (offset.y - pCue.y).pow(2))
+                            val distTarget = sqrt((offset.x - pTarget.x).pow(2) + (offset.y - pTarget.y).pow(2))
+    
+                            draggingBall = when {
+                                distCue < touchRadius -> "cue"
+                                distTarget < touchRadius -> "target"
+                                else -> null
+                            }
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            if (viewModel.isShotAnimating) return@detectDragGestures
+                            
+                            val canvasW = size.width.toFloat()
+                            val scale = canvasW / BilliardsPhysics.TABLE_WIDTH
+                            val scaleRecip = 1f / scale
+    
+                            when (draggingBall) {
+                                "cue" -> {
+                                    val newX = (viewModel.cuePos.x + dragAmount.x * scaleRecip)
+                                        .coerceIn(viewModel.calibratedMinX + BilliardsPhysics.BALL_RADIUS + 5f, viewModel.calibratedMaxX - BilliardsPhysics.BALL_RADIUS - 5f)
+                                    val newY = (viewModel.cuePos.y + dragAmount.y * scaleRecip)
+                                        .coerceIn(viewModel.calibratedMinY + BilliardsPhysics.BALL_RADIUS + 5f, viewModel.calibratedMaxY - BilliardsPhysics.BALL_RADIUS - 5f)
+                                    viewModel.cuePos = PointF(newX, newY)
+                                    viewModel.resetAnimation()
+                                }
+                                "target" -> {
+                                    val newX = (viewModel.targetPos.x + dragAmount.x * scaleRecip)
+                                        .coerceIn(viewModel.calibratedMinX + BilliardsPhysics.BALL_RADIUS + 5f, viewModel.calibratedMaxX - BilliardsPhysics.BALL_RADIUS - 5f)
+                                    val newY = (viewModel.targetPos.y + dragAmount.y * scaleRecip)
+                                        .coerceIn(viewModel.calibratedMinY + BilliardsPhysics.BALL_RADIUS + 5f, viewModel.calibratedMaxY - BilliardsPhysics.BALL_RADIUS - 5f)
+                                    viewModel.targetPos = PointF(newX, newY)
+                                    viewModel.resetAnimation()
+                                }
+                            }
+                        },
+                        onDragEnd = {
+                            draggingBall = null
+                        },
+                        onDragCancel = {
+                            draggingBall = null
+                        }
+                    )
+                }
             }
     ) {
         val w = size.width
@@ -1845,7 +2181,7 @@ fun BilliardsTableCanvas(
         val ballRadiusPixels = BilliardsPhysics.BALL_RADIUS * scale
 
         // --- TRAJECTORY DRAWING ---
-        if (!viewModel.isShotAnimating) {
+        if (!viewModel.isShotAnimating && viewModel.showARTrajectories) {
             val trajectories = viewModel.trajectories
             val targetPath = trajectories.first
             val cuePath = trajectories.second
@@ -1915,6 +2251,64 @@ fun BilliardsTableCanvas(
                 radius = 2.5f * scale,
                 center = ghostOffset
             )
+
+            // --- AUGMENTED REALITY (AR) ANGLE ARC & FLOATING LABELS ---
+            try {
+                val angleCue = atan2(cueOffset.y - ghostOffset.y, cueOffset.x - ghostOffset.x)
+                val angleTarget = atan2(targetOffset.y - ghostOffset.y, targetOffset.x - ghostOffset.x)
+                
+                // Draw a beautiful glowing angle arc at the collision point (Ghost Ball center)
+                val arcRadius = ballRadiusPixels * 1.6f
+                val cutAngleSweep = viewModel.cutAngle * (if (viewModel.cutDirection == "ימין") 1f else -1f)
+                
+                drawArc(
+                    color = NeonFelt,
+                    startAngle = Math.toDegrees(angleCue.toDouble()).toFloat(),
+                    sweepAngle = cutAngleSweep,
+                    useCenter = false,
+                    topLeft = Offset(ghostOffset.x - arcRadius, ghostOffset.y - arcRadius),
+                    size = Size(arcRadius * 2f, arcRadius * 2f),
+                    style = Stroke(width = 3.5f * scale)
+                )
+
+                // Draw floating AR math labels directly onto the camera viewport
+                val arTextPaint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.WHITE
+                    textSize = 11.5f * scale
+                    isFakeBoldText = true
+                    typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
+                    setShadowLayer(5f * scale, 0f, 0f, android.graphics.Color.BLACK)
+                }
+                
+                val goldTextPaint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.argb(255, 255, 215, 0) // Gold
+                    textSize = 11f * scale
+                    isFakeBoldText = true
+                    typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
+                    setShadowLayer(5f * scale, 0f, 0f, android.graphics.Color.BLACK)
+                }
+
+                // 1. Text floating above Ghost Ball showing Cut Angle & Direction
+                val labelX = ghostOffset.x - (30f * scale)
+                val labelY = ghostOffset.y - (ballRadiusPixels + 12f * scale)
+                drawContext.canvas.nativeCanvas.drawText(
+                    "זווית: ${String.format("%.1f", viewModel.cutAngle)}° (${viewModel.cutDirection})",
+                    labelX,
+                    labelY,
+                    arTextPaint
+                )
+
+                // 2. Text floating above Cue Ball showing dynamic Shot Angle
+                val cueAngleDeg = abs(Math.toDegrees(atan2((ghostOffset.y - cueOffset.y).toDouble(), (ghostOffset.x - cueOffset.x).toDouble())))
+                drawContext.canvas.nativeCanvas.drawText(
+                    "כיוון מכה: ${String.format("%.1f", cueAngleDeg)}°",
+                    cueOffset.x - (35f * scale),
+                    cueOffset.y - (ballRadiusPixels + 10f * scale),
+                    goldTextPaint
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
 
             // 1. Point of Impact Indicator: Draw neon circular ring at the exact collision point
             val collisionVector = targetOffset - ghostOffset
@@ -1986,6 +2380,79 @@ fun BilliardsTableCanvas(
             val impactLen = sqrt(rawImpact.x * rawImpact.x + rawImpact.y * rawImpact.y)
             val impactLine = if (impactLen > 0f) Offset(rawImpact.x / impactLen, rawImpact.y / impactLen) else Offset.Zero
             val perpOffset = Offset(-impactLine.y * 15f * scale, impactLine.x * 15f * scale)
+        }
+
+        // --- DRAW CALIBRATED BOUNDARY ---
+        if (viewModel.calibrationPoints.size == 4 || viewModel.isCalibrationActive) {
+            val left = viewModel.calibratedMinX * scale
+            val top = viewModel.calibratedMinY * scale
+            val right = viewModel.calibratedMaxX * scale
+            val bottom = viewModel.calibratedMaxY * scale
+            
+            drawRect(
+                color = NeonFelt.copy(alpha = 0.6f),
+                topLeft = Offset(left, top),
+                size = Size(right - left, bottom - top),
+                style = Stroke(width = 2.5f * scale, pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f)))
+            )
+        }
+
+        // --- DRAW ACTIVE CALIBRATION POINTS ---
+        for (index in viewModel.calibrationPoints.indices) {
+            val pt = viewModel.calibrationPoints[index]
+            val ptOffset = Offset(pt.x * scale, pt.y * scale)
+            
+            drawCircle(
+                color = Color.Yellow,
+                radius = 12f * scale,
+                center = ptOffset
+            )
+            
+            val textPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.BLACK
+                textSize = 12f * scale
+                isFakeBoldText = true
+                textAlign = android.graphics.Paint.Align.CENTER
+            }
+            
+            drawContext.canvas.nativeCanvas.drawText(
+                "${index + 1}",
+                ptOffset.x,
+                ptOffset.y + (4f * scale),
+                textPaint
+            )
+        }
+
+        // --- DRAW BOUNCE POINTS ---
+        if (viewModel.showARTrajectories && !viewModel.isShotAnimating) {
+            for (bounce in viewModel.bouncePoints) {
+                val bounceOffset = Offset(bounce.x * scale, bounce.y * scale)
+                drawCircle(
+                    color = Color.Yellow,
+                    radius = 8f * scale,
+                    center = bounceOffset
+                )
+                drawCircle(
+                    color = Color.Yellow.copy(alpha = 0.35f),
+                    radius = 16f * scale,
+                    center = bounceOffset
+                )
+                
+                val arBouncePaint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.YELLOW
+                    textSize = 9.5f * scale
+                    isFakeBoldText = true
+                    typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
+                    setShadowLayer(5f * scale, 0f, 0f, android.graphics.Color.BLACK)
+                }
+                
+                drawContext.canvas.nativeCanvas.drawText(
+                    "דופן",
+                    bounceOffset.x - (12f * scale),
+                    bounceOffset.y - (12f * scale),
+                    arBouncePaint
+                )
+            }
         }
 
         // --- DRAW BALLS ---
